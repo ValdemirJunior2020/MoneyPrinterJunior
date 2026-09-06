@@ -1,0 +1,90 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      STORAGE_ROOT: /app/storage
+      LOCAL_VIDEO_ROOT: /app/storage/local_videos
+    volumes:
+      - ./storage:/app/storage
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      chatterbox:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  chatterbox:
+    build: ./chatterbox_service
+    env_file: .env
+    environment:
+      TTS_DEVICE: ${TTS_DEVICE:-cpu}
+      HF_HOME: /models/huggingface
+    volumes:
+      - chatterbox-models:/models
+      - ./storage:/app/storage
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  n8n:
+    image: n8nio/n8n:latest
+    profiles: ["automation"]
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      N8N_HOST: 127.0.0.1
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-true}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-}
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+  frontend-build:
+    image: node:22-alpine
+    profiles: ["test"]
+    working_dir: /work
+    volumes:
+      - ./frontend:/work
+    command: ["sh", "-lc", "npm install --no-audit --no-fund && npm run build"]
+
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.55.0-noble
+    profiles: ["test"]
+    working_dir: /work
+    volumes:
+      - ./e2e:/work
+    environment:
+      BASE_URL: http://frontend
+    depends_on:
+      frontend:
+        condition: service_healthy
+    command: ["bash", "-lc", "npm install --no-audit --no-fund && npx playwright install chromium && npx playwright test"]
+
+volumes:
+  chatterbox-models:
+  n8n-data:
