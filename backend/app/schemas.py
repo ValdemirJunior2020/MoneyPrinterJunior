@@ -48,7 +48,7 @@ class ScenePlan(BaseModel):
 class SubtitleSettings(BaseModel):
     enabled: bool = True
     font: str = "Arial"
-    size: int = Field(default=46, ge=18, le=96)
+    size: int = Field(default=20, ge=8, le=96)
     position: Literal["top", "middle", "bottom"] = "bottom"
     foreground_color: str = "#FFFFFF"
     stroke_color: str = "#000000"

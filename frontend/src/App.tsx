@@ -9,7 +9,18 @@ const STAGES = [
   'Downloading media', 'Preparing visuals', 'Generating subtitles', 'Rendering', 'Finalizing', 'Complete',
 ];
 
+const SUBTITLE_PRESETS = [
+  '9:16 Tiny',
+  '9:16 Small',
+  '9:16 Normal',
+  '16:9 Small',
+  '16:9 Normal',
+  'Custom',
+] as const;
+
 type Mode = 'topic' | 'script';
+type SubtitlePreset = (typeof SUBTITLE_PRESETS)[number];
+type SubtitlePosition = 'top' | 'middle' | 'bottom';
 
 function App() {
   const [mode, setMode] = useState<Mode>('topic');
@@ -21,15 +32,18 @@ function App() {
   const [aspect, setAspect] = useState<'16:9' | '9:16'>('16:9');
   const [mediaSource, setMediaSource] = useState<'auto' | 'pexels' | 'wikimedia' | 'internet_archive'>('auto');
   const [transition, setTransition] = useState<'None' | 'Fade' | 'Crossfade' | 'Subtle Zoom'>('Fade');
+
   const [subtitles, setSubtitles] = useState(true);
+  const [subtitlePreset, setSubtitlePreset] = useState<SubtitlePreset>('16:9 Normal');
   const [subtitleMode, setSubtitleMode] = useState<'sentence' | 'phrase'>('phrase');
   const [font, setFont] = useState('Arial');
-  const [fontSize, setFontSize] = useState(46);
-  const [position, setPosition] = useState<'top' | 'middle' | 'bottom'>('bottom');
+  const [fontSize, setFontSize] = useState(20);
+  const [position, setPosition] = useState<SubtitlePosition>('bottom');
   const [foreground, setForeground] = useState('#FFFFFF');
   const [stroke, setStroke] = useState('#000000');
-  const [strokeWidth, setStrokeWidth] = useState(3);
+  const [strokeWidth, setStrokeWidth] = useState(2);
   const [subtitleBackground, setSubtitleBackground] = useState(false);
+
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.12);
   const [musicFile, setMusicFile] = useState<File | null>(null);
@@ -38,10 +52,65 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState('');
 
-  const canGenerate = useMemo(() => mode === 'topic' ? topic.trim().length > 2 : script.trim().length > 10, [mode, topic, script]);
+  const canGenerate = useMemo(
+    () => mode === 'topic' ? topic.trim().length > 2 : script.trim().length > 10,
+    [mode, topic, script],
+  );
+
+  function applySubtitlePreset(preset: SubtitlePreset) {
+    setSubtitlePreset(preset);
+
+    switch (preset) {
+      case '9:16 Tiny':
+        setFontSize(11);
+        setStrokeWidth(1);
+        setPosition('bottom');
+        break;
+      case '9:16 Small':
+        setFontSize(14);
+        setStrokeWidth(1);
+        setPosition('bottom');
+        break;
+      case '9:16 Normal':
+        setFontSize(17);
+        setStrokeWidth(2);
+        setPosition('bottom');
+        break;
+      case '16:9 Small':
+        setFontSize(16);
+        setStrokeWidth(1);
+        setPosition('bottom');
+        break;
+      case '16:9 Normal':
+        setFontSize(20);
+        setStrokeWidth(2);
+        setPosition('bottom');
+        break;
+      case 'Custom':
+      default:
+        break;
+    }
+  }
+
+  function changeAspect(nextAspect: '16:9' | '9:16') {
+    setAspect(nextAspect);
+
+    if (subtitlePreset !== 'Custom') {
+      if (nextAspect === '9:16') {
+        applySubtitlePreset('9:16 Small');
+      } else {
+        applySubtitlePreset('16:9 Normal');
+      }
+    }
+  }
+
+  function markCustom() {
+    setSubtitlePreset('Custom');
+  }
 
   useEffect(() => {
     if (!task || !['queued', 'running'].includes(task.state)) return;
+
     const timer = window.setInterval(async () => {
       try {
         setTask(await getTask(task.task_id));
@@ -49,17 +118,21 @@ function App() {
         setLocalError(err instanceof Error ? err.message : String(err));
       }
     }, 1200);
+
     return () => window.clearInterval(timer);
   }, [task?.task_id, task?.state]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!canGenerate) return;
+
     setBusy(true);
     setLocalError('');
+
     try {
       const reference_voice_path = referenceFile ? await uploadAudio(referenceFile) : null;
       const uploadedMusicPath = musicEnabled && musicFile ? await uploadAudio(musicFile) : null;
+
       const payload = {
         mode,
         topic,
@@ -90,6 +163,7 @@ function App() {
           uploaded_path: uploadedMusicPath,
         },
       };
+
       setTask(await createTask(payload));
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : String(err));
@@ -131,14 +205,25 @@ function App() {
           {mode === 'topic' ? (
             <label className="field grow">
               <span>Topic</span>
-              <textarea data-testid="topic-input" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="The story of Abraham leaving Ur" />
+              <textarea
+                data-testid="topic-input"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="The story of Abraham leaving Ur"
+              />
             </label>
           ) : (
             <>
               <label className="field grow">
                 <span>Script</span>
-                <textarea data-testid="script-input" value={script} onChange={(e) => setScript(e.target.value)} placeholder="Paste the exact narration you want spoken..." />
+                <textarea
+                  data-testid="script-input"
+                  value={script}
+                  onChange={(e) => setScript(e.target.value)}
+                  placeholder="Paste the exact narration you want spoken..."
+                />
               </label>
+
               <label className="field compact">
                 <span>Script handling</span>
                 <select value={scriptAction} onChange={(e) => setScriptAction(e.target.value as typeof scriptAction)}>
@@ -154,28 +239,48 @@ function App() {
           <div className="control-grid">
             <label className="field">
               <span>Duration</span>
-              <select data-testid="duration-select" value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
-                {DURATION_OPTIONS.map((minute) => <option key={minute} value={minute}>{minute} minute{minute > 1 ? 's' : ''}</option>)}
+              <select
+                data-testid="duration-select"
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+              >
+                {DURATION_OPTIONS.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute} minute{minute > 1 ? 's' : ''}
+                  </option>
+                ))}
               </select>
             </label>
 
             <label className="field">
               <span>Narration Style</span>
-              <select data-testid="narration-style-select" value={style} onChange={(e) => setStyle(e.target.value as typeof style)}>
+              <select
+                data-testid="narration-style-select"
+                value={style}
+                onChange={(e) => setStyle(e.target.value as typeof style)}
+              >
                 {NARRATION_STYLES.map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
 
             <label className="field">
               <span>Video Aspect</span>
-              <select value={aspect} onChange={(e) => setAspect(e.target.value as typeof aspect)}>
-                <option>16:9</option><option>9:16</option>
+              <select
+                value={aspect}
+                onChange={(e) => changeAspect(e.target.value as '16:9' | '9:16')}
+              >
+                <option>16:9</option>
+                <option>9:16</option>
               </select>
             </label>
 
             <label className="field">
               <span>Media Source</span>
-              <select data-testid="media-source-select" value={mediaSource} onChange={(e) => setMediaSource(e.target.value as typeof mediaSource)}>
+              <select
+                data-testid="media-source-select"
+                value={mediaSource}
+                onChange={(e) => setMediaSource(e.target.value as typeof mediaSource)}
+              >
                 <option value="auto">Auto</option>
                 <option value="wikimedia">Wikimedia Commons</option>
                 <option value="internet_archive">Internet Archive</option>
@@ -185,69 +290,290 @@ function App() {
 
             <label className="field">
               <span>Transition</span>
-              <select value={transition} onChange={(e) => setTransition(e.target.value as typeof transition)}>
-                <option>None</option><option>Fade</option><option>Crossfade</option><option>Subtle Zoom</option>
+              <select
+                value={transition}
+                onChange={(e) => setTransition(e.target.value as typeof transition)}
+              >
+                <option>None</option>
+                <option>Fade</option>
+                <option>Crossfade</option>
+                <option>Subtle Zoom</option>
               </select>
             </label>
 
             <label className="field file-field">
               <span>Reference Voice (Optional)</span>
-              <input data-testid="reference-voice" type="file" accept="audio/wav,audio/mpeg,.wav,.mp3" onChange={(e) => setReferenceFile(e.target.files?.[0] ?? null)} />
+              <input
+                data-testid="reference-voice"
+                type="file"
+                accept="audio/wav,audio/mpeg,.wav,.mp3"
+                onChange={(e) => setReferenceFile(e.target.files?.[0] ?? null)}
+              />
             </label>
           </div>
 
           <details open data-testid="subtitle-controls" className="subpanel">
             <summary>Subtitles</summary>
+
             <div className="toggle-row">
               <span>Enable subtitles</span>
-              <input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={subtitles}
+                onChange={(e) => setSubtitles(e.target.checked)}
+              />
             </div>
-            {subtitles && <div className="mini-grid">
-              <label>Mode<select value={subtitleMode} onChange={(e) => setSubtitleMode(e.target.value as typeof subtitleMode)}><option value="phrase">Phrase</option><option value="sentence">Sentence</option></select></label>
-              <label>Font<input value={font} onChange={(e) => setFont(e.target.value)} /></label>
-              <label>Size<input type="number" min="18" max="96" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} /></label>
-              <label>Position<select value={position} onChange={(e) => setPosition(e.target.value as typeof position)}><option value="bottom">Bottom</option><option value="middle">Middle</option><option value="top">Top</option></select></label>
-              <label>Text<input type="color" value={foreground} onChange={(e) => setForeground(e.target.value)} /></label>
-              <label>Stroke<input type="color" value={stroke} onChange={(e) => setStroke(e.target.value)} /></label>
-              <label>Stroke width<input type="number" min="0" max="10" value={strokeWidth} onChange={(e) => setStrokeWidth(Number(e.target.value))} /></label>
-              <label className="check-label">Background<input type="checkbox" checked={subtitleBackground} onChange={(e) => setSubtitleBackground(e.target.checked)} /></label>
-            </div>}
+
+            {subtitles && (
+              <div className="mini-grid">
+                <label>
+                  Quick Preset
+                  <select
+                    value={subtitlePreset}
+                    onChange={(e) => applySubtitlePreset(e.target.value as SubtitlePreset)}
+                  >
+                    {SUBTITLE_PRESETS.map((preset) => (
+                      <option key={preset} value={preset}>{preset}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  Position
+                  <select
+                    value={position}
+                    onChange={(e) => {
+                      setPosition(e.target.value as SubtitlePosition);
+                      markCustom();
+                    }}
+                  >
+                    <option value="top">Top</option>
+                    <option value="middle">Center</option>
+                    <option value="bottom">Bottom</option>
+                  </select>
+                </label>
+
+                <label>
+                  Font Size
+                  <select
+                    value={fontSize}
+                    onChange={(e) => {
+                      setFontSize(Number(e.target.value));
+                      markCustom();
+                    }}
+                  >
+                    <option value={10}>Extra Tiny - 10</option>
+                    <option value={11}>Tiny - 11</option>
+                    <option value={12}>Tiny - 12</option>
+                    <option value={14}>Small - 14</option>
+                    <option value={16}>Small - 16</option>
+                    <option value={18}>Medium - 18</option>
+                    <option value={20}>Medium - 20</option>
+                    <option value={22}>Medium - 22</option>
+                    <option value={24}>Large - 24</option>
+                    <option value={28}>Large - 28</option>
+                    <option value={32}>Extra Large - 32</option>
+                  </select>
+                </label>
+
+                <label>
+                  Mode
+                  <select
+                    value={subtitleMode}
+                    onChange={(e) => {
+                      setSubtitleMode(e.target.value as typeof subtitleMode);
+                      markCustom();
+                    }}
+                  >
+                    <option value="phrase">Phrase</option>
+                    <option value="sentence">Sentence</option>
+                  </select>
+                </label>
+
+                <label>
+                  Font
+                  <select
+                    value={font}
+                    onChange={(e) => {
+                      setFont(e.target.value);
+                      markCustom();
+                    }}
+                  >
+                    <option value="Arial">Arial</option>
+                    <option value="Arial Black">Arial Black</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Tahoma">Tahoma</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
+                    <option value="Georgia">Georgia</option>
+                  </select>
+                </label>
+
+                <label>
+                  Stroke Width
+                  <select
+                    value={strokeWidth}
+                    onChange={(e) => {
+                      setStrokeWidth(Number(e.target.value));
+                      markCustom();
+                    }}
+                  >
+                    <option value={0}>None</option>
+                    <option value={1}>Thin</option>
+                    <option value={2}>Normal</option>
+                    <option value={3}>Thick</option>
+                    <option value={4}>Extra Thick</option>
+                  </select>
+                </label>
+
+                <label>
+                  Text Color
+                  <input
+                    type="color"
+                    value={foreground}
+                    onChange={(e) => {
+                      setForeground(e.target.value);
+                      markCustom();
+                    }}
+                  />
+                </label>
+
+                <label>
+                  Stroke Color
+                  <input
+                    type="color"
+                    value={stroke}
+                    onChange={(e) => {
+                      setStroke(e.target.value);
+                      markCustom();
+                    }}
+                  />
+                </label>
+
+                <label className="check-label">
+                  Background
+                  <input
+                    type="checkbox"
+                    checked={subtitleBackground}
+                    onChange={(e) => {
+                      setSubtitleBackground(e.target.checked);
+                      markCustom();
+                    }}
+                  />
+                </label>
+
+                <div style={{ gridColumn: '1 / -1', opacity: 0.78, fontSize: '0.82rem' }}>
+                  Recommended for 9:16: <strong>9:16 Small</strong> or <strong>9:16 Tiny</strong>.
+                </div>
+              </div>
+            )}
           </details>
 
           <details className="subpanel">
             <summary>Background Music</summary>
-            <div className="toggle-row"><span>Enable music</span><input type="checkbox" checked={musicEnabled} onChange={(e) => setMusicEnabled(e.target.checked)} /></div>
-            {musicEnabled && <div className="mini-grid">
-              <label>Music file<input type="file" accept="audio/*" onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)} /></label>
-              <label>Volume<input type="range" min="0" max="0.6" step="0.01" value={musicVolume} onChange={(e) => setMusicVolume(Number(e.target.value))} /></label>
-            </div>}
+
+            <div className="toggle-row">
+              <span>Enable music</span>
+              <input
+                type="checkbox"
+                checked={musicEnabled}
+                onChange={(e) => setMusicEnabled(e.target.checked)}
+              />
+            </div>
+
+            {musicEnabled && (
+              <div className="mini-grid">
+                <label>
+                  Music file
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+
+                <label>
+                  Volume
+                  <input
+                    type="range"
+                    min="0"
+                    max="0.6"
+                    step="0.01"
+                    value={musicVolume}
+                    onChange={(e) => setMusicVolume(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            )}
           </details>
 
-          <button data-testid="generate-button" disabled={!canGenerate || busy || task?.state === 'running'} className="generate" type="submit">
+          <button
+            data-testid="generate-button"
+            disabled={!canGenerate || busy || task?.state === 'running'}
+            className="generate"
+            type="submit"
+          >
             {busy ? 'Preparing…' : 'Generate Video'}
           </button>
         </aside>
       </form>
 
-      {(task || localError) && <section className="panel progress-panel" aria-live="polite">
-        {localError && <div className="error-box">{localError}</div>}
-        {task && <>
-          <div className="progress-head">
-            <div><span className="status-dot" /> <strong>{task.stage}</strong>{task.current_scene ? ` · Scene ${task.current_scene}` : ''}</div>
-            <div>{task.progress}% · {Math.round(task.elapsed_seconds)}s</div>
-          </div>
-          <div className="progress-track"><div className="progress-fill" style={{ width: `${task.progress}%` }} /></div>
-          <div className="stage-strip">{STAGES.map((name) => <span key={name} className={name === task.stage ? 'current' : ''}>{name}</span>)}</div>
-          {task.error && <div className="error-box">{task.error}</div>}
-          {['queued', 'running'].includes(task.state) && <button type="button" className="cancel" onClick={cancel}>Cancel Task</button>}
-          {task.state === 'failed' && <button type="button" className="cancel" onClick={retry}>Retry Task</button>}
-          {task.state === 'complete' && task.output_url && <div className="result-box">
-            <video controls src={task.output_url} />
-            <a href={task.output_url} download>Download MP4</a>
-          </div>}
-        </>}
-      </section>}
-      <footer className="footer-note">When Pexels media is used, attribution is saved with the task. <a href="https://www.pexels.com" target="_blank" rel="noreferrer">Photos and videos provided by Pexels</a>.</footer>
+      {(task || localError) && (
+        <section className="panel progress-panel" aria-live="polite">
+          {localError && <div className="error-box">{localError}</div>}
+
+          {task && (
+            <>
+              <div className="progress-head">
+                <div>
+                  <span className="status-dot" /> <strong>{task.stage}</strong>
+                  {task.current_scene ? ` · Scene ${task.current_scene}` : ''}
+                </div>
+                <div>{task.progress}% · {Math.round(task.elapsed_seconds)}s</div>
+              </div>
+
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${task.progress}%` }} />
+              </div>
+
+              <div className="stage-strip">
+                {STAGES.map((name) => (
+                  <span key={name} className={name === task.stage ? 'current' : ''}>
+                    {name}
+                  </span>
+                ))}
+              </div>
+
+              {task.error && <div className="error-box">{task.error}</div>}
+
+              {['queued', 'running'].includes(task.state) && (
+                <button type="button" className="cancel" onClick={cancel}>
+                  Cancel Task
+                </button>
+              )}
+
+              {task.state === 'failed' && (
+                <button type="button" className="cancel" onClick={retry}>
+                  Retry Task
+                </button>
+              )}
+
+              {task.state === 'complete' && task.output_url && (
+                <div className="result-box">
+                  <video controls src={task.output_url} />
+                  <a href={task.output_url} download>Download MP4</a>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      <footer className="footer-note">
+        When Pexels media is used, attribution is saved with the task.{' '}
+        <a href="https://www.pexels.com" target="_blank" rel="noreferrer">
+          Photos and videos provided by Pexels
+        </a>.
+      </footer>
     </main>
   );
 }
